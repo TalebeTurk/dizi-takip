@@ -155,83 +155,99 @@
           });
 
           useEffect(() => {
-            loadDataInitial();
+            let unsubscribeSeries = null;
+            let unsubscribeWatched = null;
             
-            // Gerçek zamanlı dinleyiciler
-            const unsubscribeSeries = db.collection('users').doc(deviceId).collection('series')
-              .onSnapshot((snapshot) => {
+            const setupListeners = async () => {
+              try {
+                setLoading(true);
+                console.log('Cihaz ID:', deviceId);
+                console.log('Firebase bağlantısı kuruluyor...');
+                
+                // İlk veri yükleme
+                const seriesSnapshot = await db.collection('users').doc(deviceId).collection('series').get();
                 const seriesData = [];
-                snapshot.forEach((doc) => {
+                seriesSnapshot.forEach((doc) => {
                   seriesData.push({ ...doc.data(), id: doc.id });
                 });
                 setSeries(seriesData);
-                console.log('Diziler güncellendi:', seriesData.length);
-              }, (error) => {
-                console.error('Dizi dinleme hatası:', error);
-              });
+                console.log('İlk diziler yüklendi:', seriesData.length, seriesData);
 
-            const unsubscribeWatched = db.collection('users').doc(deviceId).collection('watched')
-              .onSnapshot((snapshot) => {
+                const watchedSnapshot = await db.collection('users').doc(deviceId).collection('watched').get();
                 const watchedData = [];
-                snapshot.forEach((doc) => {
+                watchedSnapshot.forEach((doc) => {
                   watchedData.push({ ...doc.data(), key: doc.id });
                 });
                 setWatchedEpisodes(watchedData);
-                console.log('İzlenenler güncellendi:', watchedData.length);
-              }, (error) => {
-                console.error('İzlenen dinleme hatası:', error);
-              });
+                console.log('İlk izlenenler yüklendi:', watchedData.length);
+                
+                setLoading(false);
+                
+                // Gerçek zamanlı dinleyicileri başlat
+                unsubscribeSeries = db.collection('users').doc(deviceId).collection('series')
+                  .onSnapshot((snapshot) => {
+                    const seriesData = [];
+                    snapshot.forEach((doc) => {
+                      seriesData.push({ ...doc.data(), id: doc.id });
+                    });
+                    console.log('Diziler real-time güncellendi:', seriesData.length, seriesData);
+                    setSeries(seriesData);
+                  }, (error) => {
+                    console.error('Dizi dinleme hatası:', error);
+                  });
+
+                unsubscribeWatched = db.collection('users').doc(deviceId).collection('watched')
+                  .onSnapshot((snapshot) => {
+                    const watchedData = [];
+                    snapshot.forEach((doc) => {
+                      watchedData.push({ ...doc.data(), key: doc.id });
+                    });
+                    console.log('İzlenenler real-time güncellendi:', watchedData.length);
+                    setWatchedEpisodes(watchedData);
+                  }, (error) => {
+                    console.error('İzlenen dinleme hatası:', error);
+                  });
+                  
+              } catch (error) {
+                console.error('Firebase kurulum hatası:', error);
+                alert('Firebase bağlantı hatası: ' + error.message);
+                setLoading(false);
+              }
+            };
+            
+            setupListeners();
 
             return () => {
-              unsubscribeSeries();
-              unsubscribeWatched();
+              if (unsubscribeSeries) unsubscribeSeries();
+              if (unsubscribeWatched) unsubscribeWatched();
             };
           }, []);
 
-          const loadDataInitial = async () => {
-            try {
-              setLoading(true);
-              console.log('Veriler yükleniyor...');
-              
-              // Dizileri yükle
-              const seriesSnapshot = await db.collection('users').doc(deviceId).collection('series').get();
-              const seriesData = [];
-              seriesSnapshot.forEach((doc) => {
-                seriesData.push({ ...doc.data(), id: doc.id });
-              });
-              setSeries(seriesData);
-              console.log('Diziler yüklendi:', seriesData.length);
-
-              // İzlenen bölümleri yükle
-              const watchedSnapshot = await db.collection('users').doc(deviceId).collection('watched').get();
-              const watchedData = [];
-              watchedSnapshot.forEach((doc) => {
-                watchedData.push({ ...doc.data(), key: doc.id });
-              });
-              setWatchedEpisodes(watchedData);
-              console.log('İzlenenler yüklendi:', watchedData.length);
-              
-              setLoading(false);
-            } catch (error) {
-              console.error('Veri yüklenirken hata:', error);
-              alert('Veri yüklenirken hata oluştu: ' + error.message);
-              setLoading(false);
-            }
-          };
-
           const addSeries = async () => {
-            if (!newSeries.name.trim()) return;
+            if (!newSeries.name.trim()) {
+              alert('Lütfen dizi adı girin!');
+              return;
+            }
             
             try {
               console.log('Dizi ekleniyor...', newSeries);
+              
+              // Önce formu kapat
+              setShowAddForm(false);
+              
               const seriesData = {
-                ...newSeries,
+                name: newSeries.name,
+                day: newSeries.day,
+                time: newSeries.time,
+                channel: newSeries.channel,
+                seasons: newSeries.seasons,
                 addedDate: new Date().toISOString()
               };
               
               const docRef = await db.collection('users').doc(deviceId).collection('series').add(seriesData);
               console.log('Dizi eklendi! ID:', docRef.id);
               
+              // Formu sıfırla
               setNewSeries({
                 name: '',
                 day: 'Pazartesi',
@@ -239,10 +255,12 @@
                 channel: '',
                 seasons: [{ number: 1, totalEpisodes: 10 }]
               });
-              setShowAddForm(false);
+              
             } catch (error) {
               console.error('Dizi eklenirken hata:', error);
               alert('Dizi eklenirken hata oluştu: ' + error.message);
+              // Hata durumunda formu tekrar aç
+              setShowAddForm(true);
             }
           };
 
